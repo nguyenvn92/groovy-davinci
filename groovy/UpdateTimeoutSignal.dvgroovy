@@ -1,0 +1,636 @@
+import com.vector.cfg.automation.model.ecuc.microsar.ecuc.EcuC
+import static com.vector.cfg.automation.api.ScriptApi.*
+import com.vector.cfg.consistency.EValidationSeverityType
+import static com.vector.cfg.automation.api.ScriptApi.*
+
+import com.vector.cfg.automation.model.ecuc.microsar.com.Com
+import com.vector.cfg.automation.model.ecuc.microsar.canif.CanIf
+import com.vector.cfg.automation.model.ecuc.microsar.pdur.PduR
+import com.vector.cfg.consistency.ui.IValidationResultUI
+import com.vector.cfg.gen.core.bswmdmodel.GIContainer
+import com.vector.cfg.gen.core.bswmdmodel.GIParamOrRef
+import com.vector.cfg.gen.core.bswmdmodel.GIParameter
+
+import java.nio.file.Path
+
+import groovy.json.JsonOutput
+import com.vector.cfg.business.*
+import com.vector.cfg.model.mdf.model.autosar.ecucdescription.*
+import com.vector.cfg.model.access.*
+import com.vector.cfg.model.mdf.MIObject
+import com.vector.cfg.model.operations.IModelOperationsPublished
+
+/*******************************************************************************
+ **                               Global data                                 **
+ *******************************************************************************/
+ public class SignRouting{
+	 private String SrcnetWork
+     private String TarnetWork
+	 private String SrcMsgName
+	 private String TarMsgName
+	 private String SrcsigName
+     private String TarsigName
+	 private int invalidValue
+	 private int comTimeout
+	 private static int firstTimeout
+	 
+	 public SignRouting(String SrcnetWork, String TarnetWork, String SrcMsgName, String TarMsgName, String SrcsigName, String TarsigName){
+		 this.SrcnetWork = SrcnetWork
+		 this.TarnetWork = TarnetWork
+         this.SrcMsgName = SrcMsgName
+         this.TarMsgName = TarMsgName
+		 this.SrcsigName = SrcsigName
+		 this.TarsigName = TarsigName
+		 this.invalidValue = 0
+		 this.comTimeout = 0
+		 this.firstTimeout = 2
+	 }
+	 
+	 public String getSrcnetWork() {
+		return this.SrcnetWork
+	 }
+	 public void setSrcnetWork(String srcNetwork) {
+		this.SrcnetWork = srcNetwork
+	 }
+	 
+	 public String getTarnetWork() {
+		 return this.TarnetWork
+	 }
+	 public void setTarnetWork(String tarNetwork) {
+		this.TarnetWork = tarNetwork
+	 }
+	 
+	 public String getSrcMsgName() {
+		return this.SrcMsgName
+	 }
+	 public void setSrcMsgName(String srcMsgName) {
+		this.SrcMsgName = srcMsgName
+	 }
+
+	 public String getTarMsgName() {
+		return this.TarMsgName
+	 }
+	 public void setTarMsgName(String tarMsgName) {
+		this.TarMsgName = tarMsgName
+	 }
+
+	 public String getSrcsigName() {
+		 return this.SrcsigName
+	 }
+	 
+	 public String getTarsigName() {
+		 return this.TarsigName
+	 }
+	 
+	 public int getinvalidValue() {
+		 return this.invalidValue
+	 }
+	 
+	 public void setinvalidValue(int invvalue) {
+		 this.invalidValue = invvalue
+	 }
+	 
+	 public int getcomTimeout() {
+		 return this.comTimeout
+	 }
+	 
+	 public void setcomTimeout(int timeout) {
+		 this.comTimeout = timeout
+	 }
+	 
+	 public String toString(){
+		 return this.SrcnetWork + "-" + this.TarnetWork + "-" + this.SrcMsgName + "-" + this.TarMsgName + "-" + this.SrcsigName + "-" + this.TarsigName  + "-" + this.invalidValue + "-" + this.comTimeout
+	 }
+
+ }
+ 
+ class ModelUtils {
+	 static def NPFile = [:]
+	 static def Attribute = [MsgName:1, SigName:2, InvalidValue:3, InitialValue:4, ComTimeout:5]
+	 static Boolean isuseSNV = false
+     static String RxTimeoutValueDef = "ComRxDataTimeoutSubstitutionValue"
+     static String TimeoutActionDef = "ComRxDataTimeoutAction"
+     static String TimeoutDef = "ComTimeout"
+	 
+ }
+ /*******************************************************************************
+ **                         Main script section                                **
+ *******************************************************************************/
+//daVinci enables the IDE code completion support
+daVinci {
+    scriptDescription "GenerationStep script tasks, which are executed during/after generation"
+    
+    /* 
+     * Task: GenStepTask
+     * Type: DV_GENERATION_STEP
+     * -------------------------------------------------------------------------------------------------------
+     * Executes the script task code as generation step and report a validation result
+     * -------------------------------------------------------------------------------------------------------
+     */
+    scriptTask("UpdateTimeoutSignal", DV_GENERATION_STEP){
+        taskDescription "Update the unused bit to 0xFF task"
+        def inputDir = newUserDefinedArgument ("inputDir", Path,
+                paths.resolvePath("StartApplication\\Config_Customer"),
+                "Path to DBC and VSDE file.", Constraints.IS_EXISTING_FOLDER)
+        def useSNV = newUserDefinedArgument ("useSNV", Boolean, false,
+                "User decide caculate invalid value base on SNV or NOT")
+        code{ phase, genType, resultSinkFromTask ->
+            if(phase.calculation){
+                // Execute code before / after calculation
+                transaction {
+                ArrayList<SignRouting> signals = new ArrayList<>()
+                def myPath = inputDir.value.toString()
+				ModelUtils.isuseSNV = useSNV.value
+                GetInputFileName(myPath)
+                ParseVsdeFile(signals)
+				scriptLogger.info "Updating attribute for each signal in Signals array"
+				scripts.callScriptTask("UpdateSignalsArr", signals)
+				scriptLogger.info "Create parameter for each signal rx if missing"
+                scripts.callScriptTask("CreateParameter", signals)
+				scriptLogger.info "Update timeout and invalid value for each signal in Signals array"
+				scripts.callScriptTask("UpdateParamValue", signals)
+				scriptLogger.info "Update unsued bit to FF"	
+				scripts.callScriptTask("UpdateUnusedBitToFF", signals)
+				scriptLogger.info "Update PduR groups"	
+				scripts.callScriptTask("UpdatePduRGroups")
+                }
+            }
+        
+           if(phase.validation){
+                // Execute code before / after validation
+                 
+                // Report a validation result 
+                validation{
+                    resultCreation{
+                        
+                    }
+                }
+            }
+
+            if(phase.generation){
+                // Execute code before / after generation
+
+                generation {
+                    // generate()
+                }
+            }
+        }
+    }
+    scriptTask("CreateParameter", DV_PROJECT){
+        taskDescription('The task create new parameter if does not exist')
+        taskHelp('need to name of parameter and short name of parent container')
+        code{ signals ->
+            transaction {
+                IModelOperationsPublished modelOperation = getProjectContext().getService(IModelOperationsPublished.class)
+                Com com = bswmdModel(Com).single
+				for(sig in signals){
+					String sigshortname = sig.SrcsigName + "_o" + sig.SrcMsgName + "_o" + sig.SrcnetWork
+					for(comsignal in com.comConfig.comSignal){
+						if(comsignal.shortname.contains(sigshortname)){
+                        scriptLogger.info "Create parameter ComRxDataTimeoutAction if it does not exist"
+                        def containerPath = "/ActiveEcuC/Com/ComConfig/" + comsignal.shortname
+                        String pathRxTimeoutFull = containerPath + "[0:" + ModelUtils.RxTimeoutValueDef + "]"
+                        String pathTimeoutFull = containerPath + "[0:" + ModelUtils.TimeoutDef + "]"
+                        String pathTimeoutActionFull = containerPath + "[0:" + ModelUtils.TimeoutActionDef + "]"
+                        def container = mdfModel(containerPath)[0]
+                        def defRxTimeoutPath = "/MICROSAR/Com/ComConfig/ComSignal/" + ModelUtils.RxTimeoutValueDef
+                        def defTimeoutPath = "/MICROSAR/Com/ComConfig/ComSignal/" + ModelUtils.TimeoutDef
+                        def defTimeoutActionPath = "/MICROSAR/Com/ComConfig/ComSignal/" + ModelUtils.TimeoutActionDef
+                        if (mdfModel(pathRxTimeoutFull).size() > 0){
+                            println("Parameter has exist")
+                        }
+                        else{
+                            MIParameterValue paraRxTimeout = modelOperation
+                                .createParameterByDefinition(container, defRxTimeoutPath)
+                        }
+                        if (mdfModel(pathTimeoutFull).size() > 0){
+                            println("Parameter has exist")
+                        }
+                        else{
+                            MIParameterValue paraTimeout = modelOperation
+                                .createParameterByDefinition(container, defTimeoutPath)
+                        }
+                        if (mdfModel(pathTimeoutActionFull).size() > 0){
+                            println("Parameter has exist")
+                        }
+                        else{
+                            MIParameterValue paraTimeoutAction = modelOperation
+                                .createParameterByDefinition(container, defTimeoutActionPath)
+                        }
+                        comsignal.comRxDataTimeoutAction.single.setValueMdf("REPLACE")
+						}
+					}
+				}
+            }
+        }
+    }
+    scriptTask("UpdateParamValue", DV_PROJECT){
+        taskDescription('The task create new parameter if does not exist')
+        taskHelp('need to name of parameter and short name of parent container')
+        code{ signals ->
+            transaction {
+                IModelOperationsPublished modelOperation = getProjectContext().getService(IModelOperationsPublished.class)
+                Com com = bswmdModel(Com).single
+				for(sig in signals){
+					String sigshortname = sig.SrcsigName + "_o" + sig.SrcMsgName + "_o" + sig.SrcnetWork
+					for(comsignal in com.comConfig.comSignal){
+						if(comsignal.shortname.contains(sigshortname)){
+                        scriptLogger.info "Update parameter value for com signal"
+                        comsignal.comTimeout.single.value = sig.getcomTimeout()/1000
+                        comsignal.comRxDataTimeoutSubstitutionValue.single.value = sig.getinvalidValue()
+						break
+						}
+					}
+				}
+            }
+        }
+    }
+    scriptTask("UpdateSignalsArr", DV_PROJECT){
+        taskDescription('Processing to update element of Arraylist signals')
+        taskHelp('need to array signals as input')
+        code{ signals ->
+            transaction {
+                for(SignRouting sig in signals){
+                    sig.setinvalidValue(getInvalidValue(sig.getTarnetWork(),sig.getTarsigName()))
+                    sig.setcomTimeout(getTimeout(sig.getSrcnetWork(),sig.getSrcMsgName()))
+                }
+            }
+        }
+    }
+    scriptTask("UpdateUnusedBitToFF", DV_PROJECT){
+        taskDescription('The task create new parameter if does not exist')
+        taskHelp('need to name of parameter and short name of parent container')
+        code{
+            transaction {
+                    scriptLogger.info "Updating Unused Bit values to 0xFF";
+					Com com = bswmdModel(Com).single
+					for(comIpdu in com.comConfig.comIPdu){
+						if(comIpdu.shortname.contains("_Tx")){
+							scriptLogger.info "Changing value of unused bits for $comIpdu.shortname"
+							comIpdu.comTxIPdu.comTxIPduUnusedAreasDefault[0].ceState.userDefined = true
+							comIpdu.comTxIPdu.comTxIPduUnusedAreasDefault.single.value = 255
+						}
+					}
+            }
+        }
+    }
+    scriptTask("UpdatePduRGroups", DV_PROJECT){
+        taskDescription('Update the PduR groups')
+        taskHelp('need to group pdus into groups of Info, Diag or Normal')
+        code{
+            transaction {
+                    scriptLogger.info "Update the PduR groups";
+					PduR pduR = bswmdModel(PduR).single
+					def pdurPathGroupNormal;
+					def pdurPathGroupInfo;
+					def pdurPathGroupDiag;
+					for(pduRRoutingPathGroup in pduR.pduRRoutingTables.pduRRoutingPathGroup){
+						if(pduRRoutingPathGroup.shortname.contains("_Info")){
+							pduRRoutingPathGroup.pduRIsEnabledAtInit.value = false
+							pdurPathGroupInfo = pduRRoutingPathGroup;
+						}else{
+							pduRRoutingPathGroup.pduRIsEnabledAtInit.value = true
+							if(pduRRoutingPathGroup.shortname.contains("_Diag"))
+								pdurPathGroupDiag = pduRRoutingPathGroup;
+							else
+								pdurPathGroupNormal = pduRRoutingPathGroup;
+						}
+						for(pduRef in pduRRoutingPathGroup.pduRDestPduRef){
+							pduRef.moRemove();
+						}
+					}
+					
+					for(pduRRoutingPath in pduR.pduRRoutingTables.pduRRoutingTable.pduRRoutingPath){
+						//scriptLogger.info pduRRoutingPath.getEcucDefinition();
+						def pathRef = pdurPathGroupNormal.pduRDestPduRef.createAndAdd();
+						scriptLogger.info pathRef.setRefTargetMdf(pduRRoutingPath.getReference()); //TODO
+					}
+            }
+        }
+    }
+}
+/*******************************************************************************
+ **                         User defined functions                            **
+ ******************************************************************************/
+static void ParseVsdeFile(ArrayList<SignRouting> signals){
+	String pathfile
+	String SrcnetWork = ""
+    String TarnetWork = ""
+	String SrcMsgName = ""
+    String TarMsgName = ""
+	String SrcsigName = ""
+    String TarsigName = ""
+    Boolean isGroup = false
+	pathfile = ModelUtils.NPFile["VSDE"]
+    File file = new File(pathfile)
+    def lines =  file.readLines()
+    for (line in lines){
+			if(line.contains("<COM-SIGNAL-ROUTING>")){
+                isGroup = true
+            }
+            else if((line.contains("<SOURCE-CAN-CLUSTER-REF>")) && (isGroup == true)){
+				SrcnetWork = getInstance(line)
+            }
+            else if((line.contains("<SOURCE-LIN-CLUSTER-REF>")) && (isGroup == true)){
+				SrcnetWork = getInstance(line)
+            }
+            else if((line.contains("<TARGET-CAN-CLUSTER-REF>")) && (isGroup == true)){
+				TarnetWork = getInstance(line)
+            }
+            else if((line.contains("<TARGET-LIN-CLUSTER-REF>")) && (isGroup == true)){
+				TarnetWork = getInstance(line)
+            }
+            else if((line.contains("<SOURCE-I-PDU-REF>")) && (isGroup == true)){
+				SrcMsgName = getInstance(line)
+            }
+            else if((line.contains("<SOURCE-SIGNAL-REF>")) && (isGroup == true)){
+				SrcsigName = getInstance(line)
+            }
+            else if((line.contains("<TARGET-I-PDU-REF>")) && (isGroup == true)){
+				TarMsgName = getInstance(line)
+            }
+            else if((line.contains("<TARGET-SIGNAL-REF>")) && (isGroup == true)){
+				TarsigName = getInstance(line)
+				signals.add(new SignRouting(SrcnetWork,TarnetWork,SrcMsgName,TarMsgName,SrcsigName,TarsigName)) 
+				isGroup = false
+            }
+			else{
+				
+			}	
+    }
+}
+
+static String getInstance(String instance){
+    def pattern = />[\w\S]*</
+    def matcher = instance =~ pattern
+    String returnValue = ""
+    if(matcher.find()){
+        returnValue = matcher[0]
+    }
+	returnValue = returnValue.replace('>','')
+	returnValue = returnValue.replace('<','')
+    return returnValue
+}
+static int getTimeout(String network, String message){
+	int returnValue
+	String pathfile
+	def pattern
+	def matcher
+	def cycleLine
+	def delay
+	int cycle
+	int noOfLines = 0
+	pathfile = ModelUtils.NPFile[network]
+	if(network.contains('CAN')){
+		File file = new File(pathfile)
+		def lines =  file.readLines()
+		for (line in lines){
+				if(line.contains(message + ":")){
+					pattern = /BO_.\d{2,6}/
+					matcher = line =~pattern
+					if(matcher.find()){
+						cycleLine = matcher[0].toString()
+					}
+					break
+				}
+				else{
+					
+				}	
+			}
+		for (line in lines){
+				if(line.contains("\"GenMsgCycleTime\"" + " " + cycleLine)){
+					pattern = /\d{2,8}[;]/
+					matcher = line =~pattern
+					if(matcher.find()){
+						cycle = (matcher[0].replace(';','')).toInteger()
+					}
+					break
+				}
+				else{
+					
+				}
+			}
+	}
+	else{// Read Ldf file
+		File file = new File(pathfile)
+		def lines =  file.readLines()
+		Boolean isGroup = false
+		for(line in lines){
+			if(line.contains("RUN_MAIN {")){
+				isGroup = true
+			}
+            else if((line.contains(" delay ")) && (isGroup == true)){
+				pattern = /\s\d+\s/
+				matcher = line =~ pattern
+				if(matcher.find()){
+					delay = (matcher[0].replace(' ','')).toInteger()
+				}
+				noOfLines++
+            }
+			else {
+				
+			}
+			
+		}
+		cycle = noOfLines * delay
+	}
+	if(cycle < 100) {
+		returnValue = cycle * 10
+	}
+	else
+	{
+		returnValue = cycle * 5
+	}
+	return returnValue
+}
+
+static int getInvalidValue(String network, String signame){
+	int returnValue
+	String pathfile
+	pathfile = ModelUtils.NPFile[network]
+	File file = new File(pathfile)
+	def lines =  file.readLines()
+	def pattern
+	def matcher
+	def invalidValue
+	int initialValue
+	int factor = 1
+	int offset = 0
+	int genSigStartValue
+	int bitLength
+	int SNVValue
+	String temp
+	if(network.contains('CAN')){
+		//Get factor and offset
+		for (line in lines){
+				if(line.contains("SG_ " + signame + " :")){
+					pattern = /\(-*\w+[,]-*\w+\)/
+					matcher = line =~ pattern
+					if(matcher.find()){
+						pattern = /-*\w+/
+						matcher = matcher[0] =~ pattern
+						if(matcher.find()){
+							factor = matcher[0].toInteger()
+							offset = matcher[1].toInteger()
+						}					
+					}	
+					break
+				}
+				else{
+					
+				}	
+			}
+		//Get bit length
+		for (line in lines){
+				if(line.contains("SG_ " + signame + " :")){
+					pattern = /\d+@/
+					matcher = line =~ pattern
+					if(matcher.find()){
+						matcher = matcher[0].replace("@","")
+						bitLength = matcher.toInteger()				
+					}	
+					break
+				}
+				else{
+					
+				}	
+			}
+		SNVValue = Math.pow(2,bitLength) - 1
+		//Get GenSigStartValue
+		for (line in lines){
+				if(line.contains("GenSigStartValue") && line.contains(signame)){
+					pattern = /-*\w+;$/
+					matcher = line =~ pattern
+					if(matcher.find()){
+						genSigStartValue = (matcher[0].replace(';','')).toInteger()
+					}	
+					break
+				}
+				else{
+					
+				}	
+			}
+		initialValue = genSigStartValue * factor + offset
+		if(true == ModelUtils.isuseSNV){
+			returnValue = SNVValue
+		}
+		else{
+			returnValue = initialValue
+		}
+		for (line in lines){
+				if(line.contains(" " + signame + " ") && line.contains("InvalidValue")){
+					pattern = /\"\w{1,8}\"[;]/
+					matcher = line =~ pattern
+					if(matcher.find()){
+						pattern = /\w{1,8}/
+						matcher = matcher[0] =~ pattern
+						if(matcher.find()){
+							invalidValue = matcher[0]
+							if(invalidValue.endsWith('h')){
+								invalidValue = invalidValue.replace('h','')
+								invalidValue = Integer.parseInt(invalidValue,16)
+								if(invalidValue <= SNVValue){
+									returnValue = invalidValue
+								}
+								else{
+									returnValue = SNVValue
+								}
+							}
+							else if("null" != invalidValue.toString()){
+								invalidValue = Integer.parseInt(invalidValue,16)
+								if(invalidValue <= SNVValue){
+									returnValue = invalidValue
+								}
+								else{
+									returnValue = SNVValue
+								}
+							}
+							else{
+
+							}
+						}
+					}
+					break
+				}
+				else{
+					
+				}	
+			}
+	}
+	else { //Read Ldf file
+		for (line in lines){
+			if(line.contains(signame + ":")){
+				pattern = /\s\d+/
+				matcher = line =~ pattern
+				if(matcher.find()){
+					bitLength = matcher[0].toInteger()
+					initialValue = matcher[1].toInteger()
+				}
+			}
+		}
+		if(true == ModelUtils.isuseSNV){
+			returnValue = Math.pow(2,bitLength) - 1
+		}
+		else{
+			returnValue = initialValue
+		}
+
+	}
+	return returnValue
+
+}
+
+void GetInputFileName(String path){
+	def CheckInputFolder = new File(path)
+	File[] listOfInputFiles
+	FilenameFilter filterDBC = new FilenameFilter(){
+		boolean accept(File f, String name)
+		{
+			if((name.endsWith(".dbc")) || (name.endsWith(".ldf")) || (name.endsWith(".vsde"))){
+				return name
+			}
+		}
+	}
+	// Get the list of NPFile in input directory.
+	listOfInputFiles = CheckInputFolder.listFiles(filterDBC)
+	if(listOfInputFiles.size() == 0){
+		println("No DBC or LDF file in input directory")
+	}
+	else{
+		for(file in listOfInputFiles){
+			if (file.toString().contains('Info') || file.toString().contains('CAN00')){
+				ModelUtils.NPFile["CAN00"] = file
+			}
+			else if (file.toString().contains('PT') || file.toString().contains('CAN01')){
+				ModelUtils.NPFile["CAN01"] = file
+			}
+			else if (file.toString().contains('Chassis') || file.toString().contains('CAN02')){
+				ModelUtils.NPFile["CAN02"] = file
+			}
+			else if (file.toString().contains('BA') || file.toString().contains('CAN03')){
+				ModelUtils.NPFile["CAN03"] = file
+			}
+			else if (file.toString().contains('Body') || file.toString().contains('CAN04')){
+				ModelUtils.NPFile["CAN04"] = file
+			}
+			else if (file.toString().contains('Diag') || file.toString().contains('CAN05')){
+				ModelUtils.NPFile["CAN05"] = file
+			}
+			else if (file.toString().contains('LIN0')){
+				ModelUtils.NPFile["LIN00"] = file
+			}
+			else if (file.toString().contains('LIN1')){
+				ModelUtils.NPFile["LIN00"] = file
+			}
+			else if (file.toString().contains('LIN2')){
+				ModelUtils.NPFile["LIN01"] = file
+			}
+			else if (file.toString().contains('vsde')){
+				ModelUtils.NPFile["VSDE"] = file
+			}
+			else{
+				
+			}
+		}
+	}
+}
