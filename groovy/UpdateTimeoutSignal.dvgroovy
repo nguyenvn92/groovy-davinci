@@ -299,11 +299,36 @@ daVinci {
 							pduRef.moRemove();
 						}
 					}
-					
-					for(pduRRoutingPath in pduR.pduRRoutingTables.pduRRoutingTable.pduRRoutingPath){
-						//scriptLogger.info pduRRoutingPath.getEcucDefinition();
-						def pathRef = pdurPathGroupNormal.pduRDestPduRef.createAndAdd();
-						scriptLogger.info pathRef.setRefTargetMdf(pduRRoutingPath.getReference()); //TODO
+					def pathRefNormal = pdurPathGroupNormal.pduRDestPduRef.createAndAdd();
+					def pathRefList =  pathRefNormal.getPossibleRefTargets();
+					pathRefNormal.moRemove();
+					for(containner in pathRefList){
+						def pathRef;
+						/* get dest pdu name */
+						def defRef = DefRef.create(containner.getDefRef(), "PduRDestPduRef")
+						def childRef = containner.getReferences(defRef);
+						def destString = childRef[0].getRefTarget().getShortname();
+						/* get src pdu name */
+						def path = containner.getParent();
+						def defRefSrc = DefRef.create(path.pduRSrcPdu.getDefRef(), "PduRSrcPduRef")
+						def childSrcRef = path.pduRSrcPdu.getReferences(defRefSrc);
+						def srcString = childSrcRef[0].getRefTarget().getShortname();
+						
+						if(destString.contains("_oCAN05") || srcString.contains("_oCAN05")){
+							pathRef = pdurPathGroupDiag.pduRDestPduRef.createAndAdd();
+						}
+						else if( 
+							srcString.contains("MHU_FOTA_ReqAll_oCAN00") ||
+							destString.contains("POD_GW_Response_oCAN00") || srcString.contains("POD_GW_Request_oCAN00") || /* very specical case */
+							((destString.contains("_oCAN00") || srcString.contains("_oCAN00"))
+							&& (destString.contains("_oCAN00") && destString.contains("DiagResp_") || srcString.contains("_oCAN00") && srcString.contains("DiagReq_")))
+						){
+							pathRef = pdurPathGroupInfo.pduRDestPduRef.createAndAdd();
+						}
+						else{
+							pathRef = pdurPathGroupNormal.pduRDestPduRef.createAndAdd();
+						}
+						pathRef.setRefTarget(containner);
 					}
             }
         }
