@@ -153,6 +153,8 @@ daVinci {
 				scripts.callScriptTask("UpdateUnusedBitToFF", signals)
 				scriptLogger.info "Update PduR groups"	
 				scripts.callScriptTask("UpdatePduRGroups")
+				scriptLogger.info "Select All Unmapped Signal Instances"	
+				scripts.callScriptTask("ListComUnusedMessage")
                 }
             }
         
@@ -333,6 +335,61 @@ daVinci {
             }
         }
     }
+    scriptTask("ListComUnusedMessage", DV_PROJECT){
+        taskDescription('Find and list all unused messages on Com')
+        taskHelp('list all unused messages on Com')
+        code{
+			transaction {
+				def signalInstances;
+				domain.runtimeSystem {
+					signalInstances =
+						selectSignalInstances {
+							mapped ();
+						} getSignalInstances ();
+							//scriptLogger.infoFormat(" Selected {0} signal instances .", signalInstances.size());
+							//scriptLogger.info signalInstances
+				}
+				ArrayList<String> signalInstanceNames = new ArrayList<>();
+				for(signal in signalInstances){
+					signalInstanceNames.add(signal.getName());
+				}
+				scriptLogger.info "List of ComIpdu that its signals are not used"
+                Com com = bswmdModel(Com).single
+				for(comIpdu in com.comConfig.comIPdu)
+				{
+					def refCounter = 0;
+					for(signalRef in comIpdu.comIPduSignalRef){
+						def signal = signalRef.getRefTarget();
+						def refList = signal.getReferencesPointingToMe();
+							
+						if(refList.size() > refCounter){
+							refCounter = refList.size();
+							
+							def found = false;
+							for(name in signalInstanceNames){
+								if(signal.shortname.contains(name))
+								{
+									found = true;
+									break;
+								}
+							}
+							if (found){
+								refCounter = 1 + refList.size();
+							}
+							else{
+								refCounter = refList.size();
+							}
+						}
+					}
+					
+					if(refCounter == 1){
+							scriptLogger.info comIpdu.shortname;
+					}
+				}
+				
+			}
+		}
+	}
 }
 /*******************************************************************************
  **                         User defined functions                            **
