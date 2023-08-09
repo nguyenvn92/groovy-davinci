@@ -357,30 +357,24 @@ daVinci {
                 Com com = bswmdModel(Com).single
 				for(comIpdu in com.comConfig.comIPdu)
 				{
-					def refCounter = 0;
+					def refCounter = 1;
 					for(signalRef in comIpdu.comIPduSignalRef){
 						def signal = signalRef.getRefTarget();
 						def refList = signal.getReferencesPointingToMe();
-							
-						if(refList.size() > refCounter){
-							refCounter = refList.size();
-							
-							def found = false;
-							for(name in signalInstanceNames){
-								if(signal.shortname.contains(name))
-								{
-									found = true;
-									break;
-								}
-							}
-							if (found){
-								refCounter = 1 + refList.size();
-							}
-							else{
-								refCounter = refList.size();
+						def found = false;
+						for(name in signalInstanceNames){
+							if(signal.shortname.contains(name))
+							{
+								found = true;
+								break;
 							}
 						}
-					}
+						if (found){
+							refCounter = 2;
+						}
+						if(refList.size() > refCounter)
+								refCounter = refList.size();
+							}
 					
 					if(refCounter == 1){
 							scriptLogger.info comIpdu.shortname;
